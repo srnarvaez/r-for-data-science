@@ -1,0 +1,104 @@
+---
+title: '00: Testing my files'
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(GGally)
+library(patchwork)
+library(RColorBrewer)
+```
+
+```{r paged.print=TRUE}
+data <- read_excel("data/rolled_data.xlsx")
+data <- data[,c("Time", "Lagoon", "p", "q", "t", "NDVI")]
+data <- subset(data, !is.na(data$NDVI) & data$t > -20)
+
+summary(data)
+```
+
+```{r}
+ggplot(gather(data, "variable", "values", 3:6), aes(x = Time, y = values, colour = Lagoon)) +
+  geom_line() +
+  geom_point() +
+  facet_grid(vars(variable), scales = "free_y")
+```
+
+
+```{r message=FALSE, warning=FALSE}
+fg2 <- ggpairs(data, columns = 2:6, aes(color = Lagoon, alpha = 0.5))
+print(fg2, progress = FALSE)
+```
+
+```{r}
+general_model <- lm("NDVI ~ p", data)
+summary(general_model)
+```
+
+```{r}
+mallorquin <- subset(data, data$Lagoon == "Mallorquín")
+mallorquin_model <- lm("NDVI ~ p + q + p : q", mallorquin)
+summary(mallorquin_model)
+```
+
+```{r}
+synthetic_y_q <- function(x2) {
+  val <- mallorquin_model$coefficients[2] * mallorquin$p +
+         mallorquin_model$coefficients[3] * x2 +
+         mallorquin_model$coefficients[4] * mallorquin$p * x2 +
+         mallorquin_model$coefficients[1]
+  
+  return(val)
+}
+
+x2 <- as.list(seq(-4000, 2000, 1000))
+y2 <- lapply(X = x2, FUN = synthetic_y_q)
+
+y2 <- data.frame(y2)
+colnames(y2) <- x2
+y2 <- gather(y2)
+
+colnames(y2) <- c("discharge", "NDVI")
+y2$discharge <- as.numeric(y2$discharge)
+precipitation <- rep(mallorquin$p, length(x2))
+
+p1 <- ggplot(y2) +
+  geom_point(aes(x = precipitation, y = NDVI, colour = discharge)) +
+  scale_color_gradientn(colours = brewer.pal(5, "Spectral")) +
+  ylim(-0.4, 0.6)
+
+synthetic_y_p <- function(x1) {
+  val <- mallorquin_model$coefficients[2] * x1 +
+         mallorquin_model$coefficients[3] * mallorquin$q +
+         mallorquin_model$coefficients[4] * x1 * mallorquin$q +
+         mallorquin_model$coefficients[1]
+  
+  return(val)
+}
+
+x1 <- as.list(seq(-100, 200, 50))
+y2 <- lapply(X = x1, FUN = synthetic_y_p)
+
+y2 <- data.frame(y2)
+colnames(y2) <- x1
+y2 <- gather(y2)
+
+colnames(y2) <- c("precipitation", "NDVI")
+y2$precipitation <- as.numeric(y2$precipitation)
+discharge <- rep(mallorquin$q, length(x1))
+
+p2 <- ggplot(y2) +
+  geom_point(aes(x = discharge, y = NDVI, colour = precipitation)) +
+  scale_color_gradientn(colours = brewer.pal(5, "Spectral")) +
+  ylim(-0.4, 0.6)
+
+fg3 <- p1 | p2
+print(fg3)
+```
+
